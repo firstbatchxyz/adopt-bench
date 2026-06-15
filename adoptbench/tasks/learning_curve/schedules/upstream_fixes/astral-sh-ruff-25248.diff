@@ -1,0 +1,24 @@
+diff --git a/crates/ruff_linter/resources/test/fixtures/flake8_bugbear/B008_extended.py b/crates/ruff_linter/resources/test/fixtures/flake8_bugbear/B008_extended.py
+index 0d7175daa0ea2..1c0f1312316ce 100644
+--- a/crates/ruff_linter/resources/test/fixtures/flake8_bugbear/B008_extended.py
++++ b/crates/ruff_linter/resources/test/fixtures/flake8_bugbear/B008_extended.py
+@@ -46,3 +46,6 @@ def error(obj=OtherClass()):
+ 
+ def okay(obj = N()): ...
+ def error(obj = L()): ...
++
++
++def okay(obj: frozenset[str] = foo()): ...
+diff --git a/crates/ruff_python_stdlib/src/typing.rs b/crates/ruff_python_stdlib/src/typing.rs
+index 7f4abd367cf17..07ca10d6a8b17 100644
+--- a/crates/ruff_python_stdlib/src/typing.rs
++++ b/crates/ruff_python_stdlib/src/typing.rs
+@@ -264,7 +264,7 @@ pub fn is_immutable_non_generic_type(qualified_name: &[&str]) -> bool {
+ pub fn is_immutable_generic_type(qualified_name: &[&str]) -> bool {
+     matches!(
+         qualified_name,
+-        ["" | "builtins", "tuple"]
++        ["" | "builtins", "frozenset" | "tuple"]
+             | [
+                 "collections",
+                 "abc",

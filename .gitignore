@@ -1,0 +1,79 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+
+# Node
+node_modules/
+
+# Local env
+.env
+.env.local
+docker/.env
+docker/.admin-pass
+
+# Run artefacts (KPI store, dashboards, sandboxes)
+runs/
+
+# Runner Docker build context is `_runner_deps/`. It is NOT gitignored
+# because Railway's CLI honours .gitignore when uploading the build context
+# — excluding the dir here breaks `railway up` ("failed to compute cache key:
+# /_runner_deps/kai-agent-new: not found"). Use `_runner_deps/*` to ignore
+# its CONTENT (large binaries) while keeping the dir visible to Railway.
+# Then re-include the two files Dockerfile actually COPYs.
+_runner_deps/*
+!_runner_deps/kai-agent-new/
+# Bundle re-includes per repo. Add a new line when staging a new bundle
+# under _runner_deps/ — without it the Railway upload silently drops the
+# bundle and reset.py crashes in the runner. Discovered the hard way
+# during the uv r1 first attempt.
+!_runner_deps/tempo-2026Q1/
+!_runner_deps/uv-2026Q1/
+!_runner_deps/pandas-2026Q1/
+!_runner_deps/vllm-2026Q1/
+!_runner_deps/vitest-2026Q1/
+!_runner_deps/codex-2026Q1/
+
+# Suite bundles — large binaries (git_dump.bundle, oracle JSONL); never commit.
+# Distribute via Hugging Face dataset (firstbatchxyz/adopt-bench-suite-v1).
+# Use `bundles/*` (not `bundles/`) so the un-ignore exception below can re-include
+# subdirs — git won't descend into a wholly-ignored dir to honor negation rules.
+bundles/*
+# But curated hand-picked manifests are source code — ship them.
+!bundles/curated/
+
+# OS / editor cruft
+.DS_Store
+*.swp
+*.swo
+.idea/
+.vscode/
+.claude/
+.attocode/
+
+# Defensive — never publish raw blog drafts or local visuals
+docs/blog-draft.md
+docs/visuals/
+docs/assets/
+
+# Stack manifests carry Forgejo API tokens — never commit.
+stacks/*.json
+# Admin passwords for local stacks — never commit.
+stacks/.admin-*.pass
+
+# Static viewer (web/) build artefacts and aggregator output. Source
+# under web/src/ is checked in; node_modules + dist/ + generated data
+# are not — `npm run build` regenerates everything from runs/.
+web/node_modules/
+web/dist/
+web/.astro/
+web/public/data/
+
+# learning-curve mode (ADR 0011): generated Harbor task dirs + run output
+harbor-tasks/
+jobs/
+
+# Local run archives (compressed backups of runs/) — never commit.
+runs_archive*.tar.gz
+# Codex CLI local scratch dir.
+.codex/

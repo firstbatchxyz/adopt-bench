@@ -1,0 +1,41 @@
+diff --git a/crates/ruff_linter/resources/test/fixtures/eradicate/ERA001.py b/crates/ruff_linter/resources/test/fixtures/eradicate/ERA001.py
+index da7f15870022e1..3e6dac48cf3dca 100644
+--- a/crates/ruff_linter/resources/test/fixtures/eradicate/ERA001.py
++++ b/crates/ruff_linter/resources/test/fixtures/eradicate/ERA001.py
+@@ -92,9 +92,12 @@ class A():
+ 
+ 
+ # Regression tests for https://github.com/astral-sh/ruff/issues/19713,
+-# https://github.com/astral-sh/ruff/issues/24186
++# https://github.com/astral-sh/ruff/issues/24186,
++# https://github.com/astral-sh/ruff/issues/25535
+ 
+ # ty: ignore
++# ruff: ignore[ARG001]
++# ruff: file-ignore[ARG001]
+ 
+ # mypy: ignore-errors
+ # pyright: ignore-errors
+diff --git a/crates/ruff_linter/src/rules/eradicate/detection.rs b/crates/ruff_linter/src/rules/eradicate/detection.rs
+index cb35ab4b3a7bde..77a69d1ef35a59 100644
+--- a/crates/ruff_linter/src/rules/eradicate/detection.rs
++++ b/crates/ruff_linter/src/rules/eradicate/detection.rs
+@@ -22,7 +22,7 @@ static ALLOWLIST_REGEX: LazyLock<Regex> = LazyLock::new(|| {
+             # Case-sensitive
+             pyright
+         |   pyrefly
+-        |   ruff\s*:\s*(disable|enable)
++        |   ruff\s*:\s*(disable|enable|ignore|file-ignore)
+         |   mypy:
+         |   type:\s*ignore
+         |   ty:\s*ignore
+@@ -155,6 +155,9 @@ mod tests {
+         assert!(!comment_contains_code("\t# testing: Foo Bar Baz", &[]));
+         assert!(!comment_contains_code("# ruff: disable[E501]", &[]));
+         assert!(!comment_contains_code("#ruff:enable[E501, F84]", &[]));
++        assert!(!comment_contains_code("# ruff: ignore[ARG001]", &[]));
++        assert!(!comment_contains_code("#ruff:ignore[ARG001]", &[]));
++        assert!(!comment_contains_code("#ruff:file-ignore[ARG001]", &[]));
+         assert!(!comment_contains_code(
+             "# pylint: disable=redefined-outer-name",
+             &[]

@@ -1,0 +1,82 @@
+diff --git a/crates/ruff_linter/resources/test/fixtures/pyflakes/F811_35.py b/crates/ruff_linter/resources/test/fixtures/pyflakes/F811_35.py
+new file mode 100644
+index 0000000000000..bec19d81a5362
+--- /dev/null
++++ b/crates/ruff_linter/resources/test/fixtures/pyflakes/F811_35.py
+@@ -0,0 +1,12 @@
++"""Regression test for: https://github.com/astral-sh/ruff/issues/24915"""
++
++from foo import bar
++
++
++class Foo:
++    def bar(self): ...
++
++    def bar(self): ...
++
++
++def bar(): ...
+diff --git a/crates/ruff_linter/src/rules/pyflakes/mod.rs b/crates/ruff_linter/src/rules/pyflakes/mod.rs
+index 12aeb9513bc98..abc71d02ff388 100644
+--- a/crates/ruff_linter/src/rules/pyflakes/mod.rs
++++ b/crates/ruff_linter/src/rules/pyflakes/mod.rs
+@@ -133,6 +133,7 @@ mod tests {
+     #[test_case(Rule::RedefinedWhileUnused, Path::new("F811_31.py"))]
+     #[test_case(Rule::RedefinedWhileUnused, Path::new("F811_32.py"))]
+     #[test_case(Rule::RedefinedWhileUnused, Path::new("F811_33.pyi"))]
++    #[test_case(Rule::RedefinedWhileUnused, Path::new("F811_35.py"))]
+     #[test_case(Rule::UndefinedName, Path::new("F821_0.py"))]
+     #[test_case(Rule::UndefinedName, Path::new("F821_1.py"))]
+     #[test_case(Rule::UndefinedName, Path::new("F821_2.py"))]
+diff --git a/crates/ruff_linter/src/rules/pyflakes/rules/redefined_while_unused.rs b/crates/ruff_linter/src/rules/pyflakes/rules/redefined_while_unused.rs
+index 593132b6f738c..7c0149742f6a9 100644
+--- a/crates/ruff_linter/src/rules/pyflakes/rules/redefined_while_unused.rs
++++ b/crates/ruff_linter/src/rules/pyflakes/rules/redefined_while_unused.rs
+@@ -132,6 +132,12 @@ pub(crate) fn redefined_while_unused(checker: &Checker, scope_id: ScopeId, scope
+                     }
+                 }
+             } else {
++                // A binding in a class body creates a class attribute; it doesn't rebind names
++                // in an enclosing module or function scope.
++                if scope.kind.is_class() {
++                    continue;
++                }
++
+                 // Only enforce cross-scope shadowing for imports.
+                 if !matches!(
+                     shadowed.kind,
+diff --git a/crates/ruff_linter/src/rules/pyflakes/snapshots/ruff_linter__rules__pyflakes__tests__F811_F811_35.py.snap b/crates/ruff_linter/src/rules/pyflakes/snapshots/ruff_linter__rules__pyflakes__tests__F811_F811_35.py.snap
+new file mode 100644
+index 0000000000000..1225c07666024
+--- /dev/null
++++ b/crates/ruff_linter/src/rules/pyflakes/snapshots/ruff_linter__rules__pyflakes__tests__F811_F811_35.py.snap
+@@ -0,0 +1,29 @@
++---
++source: crates/ruff_linter/src/rules/pyflakes/mod.rs
++---
++F811 Redefinition of unused `bar` from line 7
++ --> F811_35.py:7:9
++  |
++6 | class Foo:
++7 |     def bar(self): ...
++  |         --- previous definition of `bar` here
++8 |
++9 |     def bar(self): ...
++  |         ^^^ `bar` redefined here
++  |
++help: Remove definition: `bar`
++
++F811 Redefinition of unused `bar` from line 3
++  --> F811_35.py:12:5
++   |
++12 | def bar(): ...
++   |     ^^^ `bar` redefined here
++   |
++  ::: F811_35.py:3:17
++   |
++ 1 | """Regression test for: https://github.com/astral-sh/ruff/issues/24915"""
++ 2 |
++ 3 | from foo import bar
++   |                 --- previous definition of `bar` here
++   |
++help: Remove definition: `bar`

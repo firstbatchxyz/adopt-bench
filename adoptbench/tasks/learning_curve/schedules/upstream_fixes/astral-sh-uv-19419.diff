@@ -1,0 +1,146 @@
+diff --git a/crates/uv-workspace/src/workspace.rs b/crates/uv-workspace/src/workspace.rs
+index a0de6b9b1a500..9cc9ad8fb7626 100644
+--- a/crates/uv-workspace/src/workspace.rs
++++ b/crates/uv-workspace/src/workspace.rs
+@@ -92,6 +92,8 @@ pub enum MemberDiscovery {
+     /// Discover all workspace members.
+     #[default]
+     All,
++    /// Discover workspace members that are present, but ignore missing members.
++    Existing,
+     /// Don't discover any workspace members.
+     None,
+     /// Discover workspace members, but ignore the given paths.
+@@ -1005,7 +1007,7 @@ impl Workspace {
+ 
+                 // If the directory is explicitly ignored, skip it.
+                 let skip = match &options.members {
+-                    MemberDiscovery::All => false,
++                    MemberDiscovery::All | MemberDiscovery::Existing => false,
+                     MemberDiscovery::None => true,
+                     MemberDiscovery::Ignore(ignore) => ignore.contains(member_root.as_path()),
+                 };
+@@ -1036,7 +1038,21 @@ impl Workspace {
+                 let contents = match fs_err::tokio::read_to_string(&pyproject_path).await {
+                     Ok(contents) => contents,
+                     Err(err) => {
+-                        if !fs_err::metadata(&member_root)?.is_dir() {
++                        let metadata = match fs_err::metadata(&member_root) {
++                            Ok(metadata) => metadata,
++                            Err(err)
++                                if matches!(options.members, MemberDiscovery::Existing)
++                                    && err.kind() == std::io::ErrorKind::NotFound =>
++                            {
++                                debug!(
++                                    "Ignoring missing workspace member: `{}`",
++                                    member_root.simplified_display()
++                                );
++                                continue;
++                            }
++                            Err(err) => return Err(err.into()),
++                        };
++                        if !metadata.is_dir() {
+                             warn!(
+                                 "Ignoring non-directory workspace member: `{}`",
+                                 member_root.simplified_display()
+@@ -1069,6 +1085,14 @@ impl Workspace {
+                                 continue;
+                             }
+ 
++                            if matches!(options.members, MemberDiscovery::Existing) {
++                                debug!(
++                                    "Ignoring missing workspace member: `{}`",
++                                    member_root.simplified_display()
++                                );
++                                continue;
++                            }
++
+                             return Err(WorkspaceError::MissingPyprojectTomlMember(
+                                 member_root,
+                                 member_glob.to_string(),
+diff --git a/crates/uv/src/commands/project/sync.rs b/crates/uv/src/commands/project/sync.rs
+index 85cc3002edfbf..1bcaa064a5e3c 100644
+--- a/crates/uv/src/commands/project/sync.rs
++++ b/crates/uv/src/commands/project/sync.rs
+@@ -101,7 +101,7 @@ pub(crate) async fn sync(
+             VirtualProject::discover(
+                 project_dir,
+                 &DiscoveryOptions {
+-                    members: MemberDiscovery::None,
++                    members: MemberDiscovery::Existing,
+                     ..DiscoveryOptions::default()
+                 },
+                 workspace_cache,
+diff --git a/crates/uv/tests/it/sync.rs b/crates/uv/tests/it/sync.rs
+index a9bbc519bffd7..6cf1d9c17aed3 100644
+--- a/crates/uv/tests/it/sync.rs
++++ b/crates/uv/tests/it/sync.rs
+@@ -16477,3 +16477,68 @@ fn sync_reinstalls_on_version_change() -> Result<()> {
+ 
+     Ok(())
+ }
++
++/// Regression test for #19419: `uv sync --frozen` must honor credentials
++/// declared in a workspace member's `[tool.uv.sources]`.
++#[test]
++#[cfg(feature = "test-git")]
++fn sync_frozen_workspace_member_git_credentials() -> Result<()> {
++    use uv_test::{READ_ONLY_GITHUB_TOKEN, decode_token};
++
++    let context = uv_test::test_context!("3.12").with_filtered_link_mode_warning();
++    let token = decode_token(READ_ONLY_GITHUB_TOKEN);
++
++    let pyproject_toml = context.temp_dir.child("pyproject.toml");
++    pyproject_toml.write_str(indoc::indoc! {r#"
++        [project]
++        name = "root"
++        version = "0.1.0"
++        requires-python = ">=3.12"
++        dependencies = ["uv-private-pypackage"]
++
++        [tool.uv.workspace]
++        members = ["nested"]
++    "#})?;
++
++    let nested = context.temp_dir.child("nested");
++    nested.create_dir_all()?;
++    nested.child("pyproject.toml").write_str(&formatdoc! {
++        r#"
++        [project]
++        name = "nested"
++        version = "0.1.0"
++        requires-python = ">=3.12"
++        dependencies = ["uv-private-pypackage"]
++
++        [tool.uv.sources]
++        uv-private-pypackage = {{ git = "https://{token}@github.com/astral-test/uv-private-pypackage" }}
++        "#,
++        token = token,
++    })?;
++
++    // `uv lock` reads the member's `[tool.uv.sources]` and resolves successfully.
++    uv_snapshot!(&context.filters(), context.lock(), @r"
++    success: true
++    exit_code: 0
++    ----- stdout -----
++
++    ----- stderr -----
++    Resolved 3 packages in [TIME]
++    ");
++
++    // `uv sync --frozen` must propagate credentials from the member's
++    // `[tool.uv.sources]` to `GIT_STORE`. Use `--reinstall --no-cache` so the
++    // git fetch actually runs.
++    uv_snapshot!(&context.filters(), context.sync().arg("--frozen").arg("--reinstall").arg("--no-cache"), @r"
++    success: true
++    exit_code: 0
++    ----- stdout -----
++
++    ----- stderr -----
++    Prepared 1 package in [TIME]
++    Installed 1 package in [TIME]
++     + uv-private-pypackage==0.1.0 (from git+https://github.com/astral-test/uv-private-pypackage@d780faf0ac91257d4d5a4f0c5a0e4509608c0071)
++    ");
++
++    Ok(())
++}

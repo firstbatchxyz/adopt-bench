@@ -1,0 +1,31 @@
+diff --git a/crates/uv-virtualenv/src/activator/activate.fish b/crates/uv-virtualenv/src/activator/activate.fish
+index 9968496dfc4c5..f8814024eecab 100644
+--- a/crates/uv-virtualenv/src/activator/activate.fish
++++ b/crates/uv-virtualenv/src/activator/activate.fish
+@@ -80,6 +80,9 @@ end
+ deactivate nondestructive
+ 
+ set -gx VIRTUAL_ENV '{{ VIRTUAL_ENV_DIR }}'
++if string match -qr 'CYGWIN|MSYS|MINGW' (uname); and command -s cygpath >/dev/null
++    set -gx VIRTUAL_ENV (cygpath -u "$VIRTUAL_ENV")
++end
+ 
+ # https://github.com/fish-shell/fish-shell/issues/436 altered PATH handling
+ if test (string sub -s 1 -l 1 $FISH_VERSION) -lt 3
+diff --git a/crates/uv/tests/it/venv.rs b/crates/uv/tests/it/venv.rs
+index c2d8a3e4cdc92..5dc1cd3d92302 100644
+--- a/crates/uv/tests/it/venv.rs
++++ b/crates/uv/tests/it/venv.rs
+@@ -1392,6 +1392,12 @@ fn verify_pyvenv_cfg_relocatable() {
+     let activate_fish = scripts.child("activate.fish");
+     activate_fish.assert(predicates::path::is_file());
+     activate_fish.assert(predicates::str::contains(r#"set -gx VIRTUAL_ENV ''"$(dirname -- "$(cd "$(dirname -- "$(status -f)")"; and pwd)")"''"#));
++    activate_fish.assert(predicates::str::contains(
++        "if string match -qr 'CYGWIN|MSYS|MINGW' (uname); and command -s cygpath >/dev/null",
++    ));
++    activate_fish.assert(predicates::str::contains(
++        r#"set -gx VIRTUAL_ENV (cygpath -u "$VIRTUAL_ENV")"#,
++    ));
+ 
+     let activate_nu = scripts.child("activate.nu");
+     activate_nu.assert(predicates::path::is_file());

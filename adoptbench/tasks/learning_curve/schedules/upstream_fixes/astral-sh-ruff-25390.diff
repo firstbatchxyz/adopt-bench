@@ -1,0 +1,137 @@
+diff --git a/crates/ruff_linter/resources/mdtest/pylint/too-many-statements-in-try-clause.md b/crates/ruff_linter/resources/mdtest/pylint/too-many-statements-in-try-clause.md
+new file mode 100644
+index 00000000000000..bca4bb944de682
+--- /dev/null
++++ b/crates/ruff_linter/resources/mdtest/pylint/too-many-statements-in-try-clause.md
+@@ -0,0 +1,50 @@
++# `too-many-statements-in-try-clause` (`PLW0717`)
++
++```toml
++[lint]
++preview = true
++select = ["PLW0717"]
++```
++
++## Diagnostic range
++
++Avoid marking the entire `try` statement:
++
++```py
++# snapshot: too-many-statements-in-try-clause
++try:
++    call1()
++    call2()
++    call3()
++    call4()
++    call5()
++    call6()
++except:
++    ...
++```
++
++```snapshot
++error[PLW0717]: Try clause contains too many statements (6 > 5)
++ --> src/mdtest_snippet.py:2:1
++  |
++2 | try:
++  | ^^^
++  |
++```
++
++## Context managers
++
++Avoid emitting a diagnostic when the `try` statement is being used like a context manager, i.e. it
++catches no exceptions and just ensures that some kind of cleanup is run in a `finally` clause:
++
++```py
++try:
++    call1()
++    call2()
++    call3()
++    call4()
++    call5()
++    call6()
++finally:
++    cleanup()
++```
+diff --git a/crates/ruff_linter/src/checkers/ast/analyze/statement.rs b/crates/ruff_linter/src/checkers/ast/analyze/statement.rs
+index 59d8c79e7ccd2e..dd1b213ecc4c7b 100644
+--- a/crates/ruff_linter/src/checkers/ast/analyze/statement.rs
++++ b/crates/ruff_linter/src/checkers/ast/analyze/statement.rs
+@@ -1341,8 +1341,7 @@ pub(crate) fn statement(stmt: &Stmt, checker: &mut Checker) {
+             if checker.is_rule_enabled(Rule::TooManyStatementsInTryClause) {
+                 pylint::rules::too_many_try_statements(
+                     checker,
+-                    stmt,
+-                    body,
++                    try_stmt,
+                     checker.settings().pylint.max_statements_in_try,
+                 );
+             }
+diff --git a/crates/ruff_linter/src/rules/pylint/rules/too_many_try_statements.rs b/crates/ruff_linter/src/rules/pylint/rules/too_many_try_statements.rs
+index 9de2170f9823ec..04bf93df386423 100644
+--- a/crates/ruff_linter/src/rules/pylint/rules/too_many_try_statements.rs
++++ b/crates/ruff_linter/src/rules/pylint/rules/too_many_try_statements.rs
+@@ -1,6 +1,6 @@
+ use ruff_macros::{ViolationMetadata, derive_message_formats};
+-use ruff_python_ast::Stmt;
+-use ruff_python_ast::identifier::Identifier;
++use ruff_python_ast::StmtTry;
++use ruff_text_size::{Ranged, TextLen, TextRange};
+ 
+ use crate::Violation;
+ 
+@@ -89,18 +89,23 @@ impl Violation for TooManyStatementsInTryClause {
+ /// W0717
+ pub(crate) fn too_many_try_statements(
+     checker: &Checker,
+-    stmt: &Stmt,
+-    body: &[Stmt],
++    try_stmt: &StmtTry,
+     max_statements: usize,
+ ) {
+-    let statements = num_statements(body);
++    // Ignore cases with only `finally` clauses and no `except` handlers. These can't accidentally
++    // catch the wrong exception and are instead being used more like context managers.
++    if try_stmt.handlers.is_empty() {
++        return;
++    }
++
++    let statements = num_statements(&try_stmt.body);
+     if statements > max_statements {
+         checker.report_diagnostic(
+             TooManyStatementsInTryClause {
+                 statements,
+                 max_statements,
+             },
+-            stmt.identifier(),
++            TextRange::at(try_stmt.start(), "try".text_len()),
+         );
+     }
+ }
+diff --git a/crates/ruff_linter/src/rules/pylint/snapshots/ruff_linter__rules__pylint__tests__PLW0717_too_many_try_statements.py.snap b/crates/ruff_linter/src/rules/pylint/snapshots/ruff_linter__rules__pylint__tests__PLW0717_too_many_try_statements.py.snap
+index d905bdc9ee7cd1..66808ac62183dd 100644
+--- a/crates/ruff_linter/src/rules/pylint/snapshots/ruff_linter__rules__pylint__tests__PLW0717_too_many_try_statements.py.snap
++++ b/crates/ruff_linter/src/rules/pylint/snapshots/ruff_linter__rules__pylint__tests__PLW0717_too_many_try_statements.py.snap
+@@ -4,16 +4,10 @@ source: crates/ruff_linter/src/rules/pylint/mod.rs
+ PLW0717 Try clause contains too many statements (6 > 5)
+   --> too_many_try_statements.py:63:1
+    |
+-61 |       print()
++61 |     print()
+ 62 |
+-63 | / try:  # Too many try statements (6/5)
+-64 | |     print()
+-65 | |     print()
+-66 | |     print()
+-67 | |     print()
+-68 | |     print()
+-69 | |     print()
+-70 | | except Exception:
+-71 | |     raise
+-   | |_________^
++63 | try:  # Too many try statements (6/5)
++   | ^^^
++64 |     print()
++65 |     print()
+    |

@@ -1,0 +1,89 @@
+diff --git a/crates/ruff_linter/resources/test/fixtures/flake8_use_pathlib/full_name.py b/crates/ruff_linter/resources/test/fixtures/flake8_use_pathlib/full_name.py
+index cd56dc8077e73f..00469f3109ea1f 100644
+--- a/crates/ruff_linter/resources/test/fixtures/flake8_use_pathlib/full_name.py
++++ b/crates/ruff_linter/resources/test/fixtures/flake8_use_pathlib/full_name.py
+@@ -171,3 +171,17 @@ def bar(x: int):
+         break
+ except TypeError as e:
+     print("readlink: not iterable")
++
++
++# https://github.com/astral-sh/ruff/issues/17699
++# Attribute access whose binding can be resolved via `lookup_attribute`.
++# When the resolved attribute is `int`, the diagnostic is suppressed,
++# matching the behavior for `int`-annotated names elsewhere in this file.
++# Note: this only covers class-attribute access via the class itself
++# (e.g., `Cls.attr`); instance access (e.g., `obj.attr`) is not resolved.
++class _AttrHolder:
++    fd: int = 0
++    name: str = ""
++
++os.chmod(_AttrHolder.fd, 0o644)    # Suppressed: resolved as `int`
++os.chmod(_AttrHolder.name, 0o644)  # Diagnostic + fix: resolved as `str`
+diff --git a/crates/ruff_linter/src/rules/flake8_use_pathlib/helpers.rs b/crates/ruff_linter/src/rules/flake8_use_pathlib/helpers.rs
+index 18c03433df292c..66ba774400f2e9 100644
+--- a/crates/ruff_linter/src/rules/flake8_use_pathlib/helpers.rs
++++ b/crates/ruff_linter/src/rules/flake8_use_pathlib/helpers.rs
+@@ -123,6 +123,15 @@ pub(crate) fn is_file_descriptor(expr: &Expr, semantic: &SemanticModel) -> bool
+         return true;
+     }
+ 
++    // Resolve attribute expressions (e.g., `obj.fd` where `fd` is annotated at
++    // the class level) via the semantic model. Matches the existing behavior
++    // for `Name` expressions below.
++    if let Expr::Attribute(_) = expr
++        && let Some(binding_id) = semantic.lookup_attribute(expr)
++    {
++        return typing::is_int(semantic.binding(binding_id), semantic);
++    }
++
+     let Some(name) = get_name_expr(expr) else {
+         return false;
+     };
+diff --git a/crates/ruff_linter/src/rules/flake8_use_pathlib/snapshots/ruff_linter__rules__flake8_use_pathlib__tests__full_name.py.snap b/crates/ruff_linter/src/rules/flake8_use_pathlib/snapshots/ruff_linter__rules__flake8_use_pathlib__tests__full_name.py.snap
+index dfc79473c03a0d..e818dc83d86396 100644
+--- a/crates/ruff_linter/src/rules/flake8_use_pathlib/snapshots/ruff_linter__rules__flake8_use_pathlib__tests__full_name.py.snap
++++ b/crates/ruff_linter/src/rules/flake8_use_pathlib/snapshots/ruff_linter__rules__flake8_use_pathlib__tests__full_name.py.snap
+@@ -628,3 +628,12 @@ PTH115 `os.readlink()` should be replaced by `Path.readlink()`
+ 171 |         break
+     |
+ help: Replace with `Path(...).readlink()`
++
++PTH101 `os.chmod()` should be replaced by `Path.chmod()`
++   --> full_name.py:187:1
++    |
++186 | os.chmod(_AttrHolder.fd, 0o644)    # Suppressed: resolved as `int`
++187 | os.chmod(_AttrHolder.name, 0o644)  # Diagnostic + fix: resolved as `str`
++    | ^^^^^^^^
++    |
++help: Replace with `Path(...).chmod(...)`
+diff --git a/crates/ruff_linter/src/rules/flake8_use_pathlib/snapshots/ruff_linter__rules__flake8_use_pathlib__tests__preview_full_name.py.snap b/crates/ruff_linter/src/rules/flake8_use_pathlib/snapshots/ruff_linter__rules__flake8_use_pathlib__tests__preview_full_name.py.snap
+index 097e29f39ade47..9b18342cf8e45a 100644
+--- a/crates/ruff_linter/src/rules/flake8_use_pathlib/snapshots/ruff_linter__rules__flake8_use_pathlib__tests__preview_full_name.py.snap
++++ b/crates/ruff_linter/src/rules/flake8_use_pathlib/snapshots/ruff_linter__rules__flake8_use_pathlib__tests__preview_full_name.py.snap
+@@ -1176,3 +1176,25 @@ help: Replace with `Path(...).readlink()`
+ 172 |         break
+ 173 | except TypeError as e:
+ note: This is an unsafe fix and may change runtime behavior
++
++PTH101 [*] `os.chmod()` should be replaced by `Path.chmod()`
++   --> full_name.py:187:1
++    |
++186 | os.chmod(_AttrHolder.fd, 0o644)    # Suppressed: resolved as `int`
++187 | os.chmod(_AttrHolder.name, 0o644)  # Diagnostic + fix: resolved as `str`
++    | ^^^^^^^^
++    |
++help: Replace with `Path(...).chmod(...)`
++140 |
++141 | # See: https://github.com/astral-sh/ruff/issues/21794
++142 | import sys
++143 + import pathlib
++144 |
++145 | if os.rename("pth1.py", "pth1.py.bak"):
++146 |     print("rename: truthy")
++--------------------------------------------------------------------------------
++185 |     name: str = ""
++186 |
++187 | os.chmod(_AttrHolder.fd, 0o644)    # Suppressed: resolved as `int`
++    - os.chmod(_AttrHolder.name, 0o644)  # Diagnostic + fix: resolved as `str`
++188 + pathlib.Path(_AttrHolder.name).chmod(0o644)  # Diagnostic + fix: resolved as `str`

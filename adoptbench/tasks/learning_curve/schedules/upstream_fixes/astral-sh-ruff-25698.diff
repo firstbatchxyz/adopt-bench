@@ -1,0 +1,13 @@
+diff --git a/crates/ruff_linter/src/rules/ruff/rules/invalid_suppression_comment.rs b/crates/ruff_linter/src/rules/ruff/rules/invalid_suppression_comment.rs
+index bf17f3692874b7..7e8f3426a862f1 100644
+--- a/crates/ruff_linter/src/rules/ruff/rules/invalid_suppression_comment.rs
++++ b/crates/ruff_linter/src/rules/ruff/rules/invalid_suppression_comment.rs
+@@ -38,7 +38,7 @@ impl AlwaysFixableViolation for InvalidSuppressionComment {
+                 "unexpected indentation".to_string()
+             }
+             InvalidSuppressionCommentKind::Invalid(InvalidSuppressionKind::Trailing) => {
+-                "trailing comments are only support for ruff:ignore suppressions".to_string()
++                "trailing comments are only supported for ruff:ignore suppressions".to_string()
+             }
+             InvalidSuppressionCommentKind::Invalid(InvalidSuppressionKind::Unmatched) => {
+                 "no matching 'disable' comment".to_string()

@@ -1,0 +1,72 @@
+diff --git a/crates/ruff_formatter/src/buffer.rs b/crates/ruff_formatter/src/buffer.rs
+index 5a72c3c8a95bc6..13bfa7ce139d54 100644
+--- a/crates/ruff_formatter/src/buffer.rs
++++ b/crates/ruff_formatter/src/buffer.rs
+@@ -530,6 +530,10 @@ impl RemoveSoftLineBreaksState {
+             Self::Default => match element {
+                 FormatElement::Line(LineMode::Soft) => true,
+ 
++                // `BestFitting` is resolved to its most-flat entry by this buffer, so we can drop
++                // the start and end tags, leaving only their contents.
++                FormatElement::Tag(Tag::StartBestFittingEntry | Tag::EndBestFittingEntry) => true,
++
+                 // Entered the start of an `if_group_breaks` or `if_group_fits`
+                 // For `if_group_breaks`: Remove the start and end tag and all content in between.
+                 // For `if_group_fits_on_line`: Unwrap the content. This is important because the enclosing group
+diff --git a/crates/ruff_python_formatter/resources/test/fixtures/ruff/expression/lambda.py b/crates/ruff_python_formatter/resources/test/fixtures/ruff/expression/lambda.py
+index 30d39ace26aaf3..bad4e666c9fdd2 100644
+--- a/crates/ruff_python_formatter/resources/test/fixtures/ruff/expression/lambda.py
++++ b/crates/ruff_python_formatter/resources/test/fixtures/ruff/expression/lambda.py
+@@ -856,3 +856,13 @@ def bar():
+ # This can also be triggered in nested, interned elements within `BestFitting` elements
+ def foo():
+     subprocess.check_call(f"rm -rf {' '.join(map(lambda object_name: max(candidate_paths, key=lambda candidate: os.path.join(dest_path, object_name, candidate)), objects_to_remove))}", shell=True)
++
++# Regression test for https://github.com/astral-sh/ruff/issues/25397
++class CantFormat:
++    args: list[int]
++
++    def __str__(self) -> str:
++        return (
++            "first string"
++            f"list of args long={list(map(lambda arg: str(arg), self.args))})"
++        )
+diff --git a/crates/ruff_python_formatter/tests/snapshots/format@expression__lambda.py.snap b/crates/ruff_python_formatter/tests/snapshots/format@expression__lambda.py.snap
+index 773a6bd6441af5..85aaa7987d651f 100644
+--- a/crates/ruff_python_formatter/tests/snapshots/format@expression__lambda.py.snap
++++ b/crates/ruff_python_formatter/tests/snapshots/format@expression__lambda.py.snap
+@@ -862,6 +862,16 @@ value = f"prefix {
+ # This can also be triggered in nested, interned elements within `BestFitting` elements
+ def foo():
+     subprocess.check_call(f"rm -rf {' '.join(map(lambda object_name: max(candidate_paths, key=lambda candidate: os.path.join(dest_path, object_name, candidate)), objects_to_remove))}", shell=True)
++
++# Regression test for https://github.com/astral-sh/ruff/issues/25397
++class CantFormat:
++    args: list[int]
++
++    def __str__(self) -> str:
++        return (
++            "first string"
++            f"list of args long={list(map(lambda arg: str(arg), self.args))})"
++        )
+ ```
+ 
+ ## Output
+@@ -1815,6 +1825,17 @@ def foo():
+         f"rm -rf {' '.join(map(lambda object_name: max(candidate_paths, key=lambda candidate: os.path.join(dest_path, object_name, candidate)), objects_to_remove))}",
+         shell=True,
+     )
++
++
++# Regression test for https://github.com/astral-sh/ruff/issues/25397
++class CantFormat:
++    args: list[int]
++
++    def __str__(self) -> str:
++        return (
++            "first string"
++            f"list of args long={list(map(lambda arg: str(arg), self.args))})"
++        )
+ ```
+ 
+ 

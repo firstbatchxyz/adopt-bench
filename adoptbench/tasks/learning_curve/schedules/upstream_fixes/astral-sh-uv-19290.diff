@@ -1,0 +1,26 @@
+diff --git a/crates/uv/src/commands/project/lock.rs b/crates/uv/src/commands/project/lock.rs
+index 9730099ae4c45..35f40c5ac0cb0 100644
+--- a/crates/uv/src/commands/project/lock.rs
++++ b/crates/uv/src/commands/project/lock.rs
+@@ -230,7 +230,7 @@ pub(crate) async fn lock(
+                     }
+                     FrozenSource::Env | FrozenSource::Configuration => {
+                         warn_user!(
+-                            "The lockfile at `uv.lock` was only checked for validity, not whether it is up-to-date, because {} was provided; use `--no-frozen` or `--check` instead",
++                            "The lockfile at `uv.lock` was only checked for validity, not whether it is up-to-date, because {} was provided; use `--check` instead",
+                             MissingLockfileSource::from(frozen_source)
+                         );
+                     }
+diff --git a/crates/uv/tests/it/lock.rs b/crates/uv/tests/it/lock.rs
+index 6d6493d1a215c..8c97df3acb7b2 100644
+--- a/crates/uv/tests/it/lock.rs
++++ b/crates/uv/tests/it/lock.rs
+@@ -35601,7 +35601,7 @@ fn lock_frozen_warning() -> Result<()> {
+     ----- stdout -----
+ 
+     ----- stderr -----
+-    warning: The lockfile at `uv.lock` was only checked for validity, not whether it is up-to-date, because `UV_FROZEN=1` was provided; use `--no-frozen` or `--check` instead
++    warning: The lockfile at `uv.lock` was only checked for validity, not whether it is up-to-date, because `UV_FROZEN=1` was provided; use `--check` instead
+     ");
+ 
+     Ok(())

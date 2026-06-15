@@ -1,0 +1,513 @@
+diff --git a/crates/uv/src/commands/pip/compile.rs b/crates/uv/src/commands/pip/compile.rs
+index b0d38e6742e3c..ed9231d000338 100644
+--- a/crates/uv/src/commands/pip/compile.rs
++++ b/crates/uv/src/commands/pip/compile.rs
+@@ -72,6 +72,7 @@ pub(crate) async fn pip_compile(
+     excludes_from_workspace: Vec<uv_normalize::PackageName>,
+     build_constraints_from_workspace: Vec<Requirement>,
+     environments: SupportedEnvironments,
++    required_environments: SupportedEnvironments,
+     extras: ExtrasSpecification,
+     groups: GroupsSpecification,
+     output_file: Option<&Path>,
+@@ -385,7 +386,13 @@ pub(crate) async fn pip_compile(
+     };
+ 
+     let artifact_environments = if universal {
+-        environments.clone()
++        SupportedEnvironments::from_markers(
++            environments
++                .iter()
++                .chain(required_environments.iter())
++                .copied()
++                .collect(),
++        )
+     } else {
+         SupportedEnvironments::default()
+     };
+diff --git a/crates/uv/src/lib.rs b/crates/uv/src/lib.rs
+index 0ae0a316058ed..567beb9368376 100644
+--- a/crates/uv/src/lib.rs
++++ b/crates/uv/src/lib.rs
+@@ -657,6 +657,7 @@ async fn run(cli: Cli) -> Result<ExitStatus> {
+                 args.excludes_from_workspace,
+                 args.build_constraints_from_workspace,
+                 args.environments,
++                args.required_environments,
+                 args.settings.extras,
+                 groups,
+                 args.settings.output_file.as_deref(),
+diff --git a/crates/uv/src/settings.rs b/crates/uv/src/settings.rs
+index 6d7075641ecdb..52413422180e4 100644
+--- a/crates/uv/src/settings.rs
++++ b/crates/uv/src/settings.rs
+@@ -2777,6 +2777,7 @@ pub(crate) struct PipCompileSettings {
+     pub(crate) excludes_from_workspace: Vec<PackageName>,
+     pub(crate) build_constraints_from_workspace: Vec<Requirement>,
+     pub(crate) environments: SupportedEnvironments,
++    pub(crate) required_environments: SupportedEnvironments,
+     pub(crate) refresh: Refresh,
+     pub(crate) settings: PipSettings,
+ }
+@@ -2899,6 +2900,15 @@ impl PipCompileSettings {
+             SupportedEnvironments::default()
+         };
+ 
++        let required_environments = if let Some(configuration) = &filesystem {
++            configuration
++                .required_environments
++                .clone()
++                .unwrap_or_default()
++        } else {
++            SupportedEnvironments::default()
++        };
++
+         Self {
+             format,
+             src_file,
+@@ -2923,6 +2933,7 @@ impl PipCompileSettings {
+             excludes_from_workspace,
+             build_constraints_from_workspace,
+             environments,
++            required_environments,
+             refresh: Refresh::from(refresh),
+             settings: PipSettings::combine(
+                 PipOptions {
+diff --git a/crates/uv/tests/it/pip_compile.rs b/crates/uv/tests/it/pip_compile.rs
+index 67dac87b0ec74..d12eda1c4affa 100644
+--- a/crates/uv/tests/it/pip_compile.rs
++++ b/crates/uv/tests/it/pip_compile.rs
+@@ -14369,6 +14369,59 @@ fn universal_constrained_environment() -> Result<()> {
+     Ok(())
+ }
+ 
++/// Resolve with `--universal`, requiring artifact coverage for user-provided environments.
++#[test]
++fn universal_required_environment() -> Result<()> {
++    let context = uv_test::test_context!("3.12");
++
++    let pyproject_toml = context.temp_dir.child("pyproject.toml");
++    pyproject_toml.write_str(&indoc::formatdoc! {r#"
++        [project]
++        name = "project"
++        version = "0.1.0"
++        requires-python = ">=3.12"
++        dependencies = ["no-sdist-no-wheels-with-matching-platform-a"]
++
++        [tool.uv]
++        required-environments = ["platform_machine == 'arm64'"]
++
++        [[tool.uv.index]]
++        name = "packse"
++        url = "{}"
++        default = true
++        "#,
++        packse_index_url()
++    })?;
++
++    let filters: Vec<_> = context
++        .filters()
++        .into_iter()
++        .chain([(
++            // This hint is only shown when the current platform doesn't match the target.
++            r"\n\n\s+hint: The resolution failed for an environment that is not the current one[^\n]*",
++            "",
++        )])
++        .collect();
++
++    uv_snapshot!(filters, context.pip_compile()
++        .arg("pyproject.toml")
++        .arg("--universal")
++        .arg("--exclude-newer-package")
++        .arg("no-sdist-no-wheels-with-matching-platform-a=false")
++        .env_remove(EnvVars::UV_EXCLUDE_NEWER), @"
++    success: false
++    exit_code: 1
++    ----- stdout -----
++
++    ----- stderr -----
++      × No solution found when resolving dependencies for split (markers: platform_machine == 'arm64'):
++      ╰─▶ Because only no-sdist-no-wheels-with-matching-platform-a==1.0.0 is available and no-sdist-no-wheels-with-matching-platform-a==1.0.0 has no `platform_machine == 'arm64'`-compatible wheels, we can conclude that all versions of no-sdist-no-wheels-with-matching-platform-a cannot be used.
++          And because project depends on no-sdist-no-wheels-with-matching-platform-a, we can conclude that your requirements are unsatisfiable.
++    ");
++
++    Ok(())
++}
++
+ /// Resolve a package that has no versions that satisfy the current Python version.
+ #[test]
+ fn compile_enumerate_no_versions() -> Result<()> {
+diff --git a/crates/uv/tests/it/show_settings.rs b/crates/uv/tests/it/show_settings.rs
+index d660a54a9895d..06b14cf53a749 100644
+--- a/crates/uv/tests/it/show_settings.rs
++++ b/crates/uv/tests/it/show_settings.rs
+@@ -106,6 +106,9 @@ fn resolve_uv_toml() -> anyhow::Result<()> {
+         environments: SupportedEnvironments(
+             [],
+         ),
++        required_environments: SupportedEnvironments(
++            [],
++        ),
+         refresh: None(
+             Timestamp(
+                 SystemTime {
+@@ -319,6 +322,9 @@ fn resolve_uv_toml() -> anyhow::Result<()> {
+         environments: SupportedEnvironments(
+             [],
+         ),
++        required_environments: SupportedEnvironments(
++            [],
++        ),
+         refresh: None(
+             Timestamp(
+                 SystemTime {
+@@ -533,6 +539,9 @@ fn resolve_uv_toml() -> anyhow::Result<()> {
+         environments: SupportedEnvironments(
+             [],
+         ),
++        required_environments: SupportedEnvironments(
++            [],
++        ),
+         refresh: None(
+             Timestamp(
+                 SystemTime {
+@@ -779,6 +788,9 @@ fn resolve_pyproject_toml() -> anyhow::Result<()> {
+         environments: SupportedEnvironments(
+             [],
+         ),
++        required_environments: SupportedEnvironments(
++            [],
++        ),
+         refresh: None(
+             Timestamp(
+                 SystemTime {
+@@ -994,6 +1006,9 @@ fn resolve_pyproject_toml() -> anyhow::Result<()> {
+         environments: SupportedEnvironments(
+             [],
+         ),
++        required_environments: SupportedEnvironments(
++            [],
++        ),
+         refresh: None(
+             Timestamp(
+                 SystemTime {
+@@ -1181,6 +1196,9 @@ fn resolve_pyproject_toml() -> anyhow::Result<()> {
+         environments: SupportedEnvironments(
+             [],
+         ),
++        required_environments: SupportedEnvironments(
++            [],
++        ),
+         refresh: None(
+             Timestamp(
+                 SystemTime {
+@@ -1419,6 +1437,9 @@ fn resolve_index_url() -> anyhow::Result<()> {
+         environments: SupportedEnvironments(
+             [],
+         ),
++        required_environments: SupportedEnvironments(
++            [],
++        ),
+         refresh: None(
+             Timestamp(
+                 SystemTime {
+@@ -1667,6 +1688,9 @@ fn resolve_index_url() -> anyhow::Result<()> {
+         environments: SupportedEnvironments(
+             [],
+         ),
++        required_environments: SupportedEnvironments(
++            [],
++        ),
+         refresh: None(
+             Timestamp(
+                 SystemTime {
+@@ -1975,6 +1999,9 @@ fn resolve_find_links() -> anyhow::Result<()> {
+         environments: SupportedEnvironments(
+             [],
+         ),
++        required_environments: SupportedEnvironments(
++            [],
++        ),
+         refresh: None(
+             Timestamp(
+                 SystemTime {
+@@ -2210,6 +2237,9 @@ fn resolve_top_level() -> anyhow::Result<()> {
+         environments: SupportedEnvironments(
+             [],
+         ),
++        required_environments: SupportedEnvironments(
++            [],
++        ),
+         refresh: None(
+             Timestamp(
+                 SystemTime {
+@@ -2402,6 +2432,9 @@ fn resolve_top_level() -> anyhow::Result<()> {
+         environments: SupportedEnvironments(
+             [],
+         ),
++        required_environments: SupportedEnvironments(
++            [],
++        ),
+         refresh: None(
+             Timestamp(
+                 SystemTime {
+@@ -2648,6 +2681,9 @@ fn resolve_top_level() -> anyhow::Result<()> {
+         environments: SupportedEnvironments(
+             [],
+         ),
++        required_environments: SupportedEnvironments(
++            [],
++        ),
+         refresh: None(
+             Timestamp(
+                 SystemTime {
+@@ -2917,6 +2953,9 @@ fn resolve_user_configuration() -> anyhow::Result<()> {
+         environments: SupportedEnvironments(
+             [],
+         ),
++        required_environments: SupportedEnvironments(
++            [],
++        ),
+         refresh: None(
+             Timestamp(
+                 SystemTime {
+@@ -3099,6 +3138,9 @@ fn resolve_user_configuration() -> anyhow::Result<()> {
+         environments: SupportedEnvironments(
+             [],
+         ),
++        required_environments: SupportedEnvironments(
++            [],
++        ),
+         refresh: None(
+             Timestamp(
+                 SystemTime {
+@@ -3281,6 +3323,9 @@ fn resolve_user_configuration() -> anyhow::Result<()> {
+         environments: SupportedEnvironments(
+             [],
+         ),
++        required_environments: SupportedEnvironments(
++            [],
++        ),
+         refresh: None(
+             Timestamp(
+                 SystemTime {
+@@ -3465,6 +3510,9 @@ fn resolve_user_configuration() -> anyhow::Result<()> {
+         environments: SupportedEnvironments(
+             [],
+         ),
++        required_environments: SupportedEnvironments(
++            [],
++        ),
+         refresh: None(
+             Timestamp(
+                 SystemTime {
+@@ -3866,6 +3914,9 @@ fn resolve_poetry_toml() -> anyhow::Result<()> {
+         environments: SupportedEnvironments(
+             [],
+         ),
++        required_environments: SupportedEnvironments(
++            [],
++        ),
+         refresh: None(
+             Timestamp(
+                 SystemTime {
+@@ -4082,6 +4133,9 @@ fn resolve_both() -> anyhow::Result<()> {
+         environments: SupportedEnvironments(
+             [],
+         ),
++        required_environments: SupportedEnvironments(
++            [],
++        ),
+         refresh: None(
+             Timestamp(
+                 SystemTime {
+@@ -4341,6 +4395,9 @@ fn resolve_both_special_fields() -> anyhow::Result<()> {
+         environments: SupportedEnvironments(
+             [],
+         ),
++        required_environments: SupportedEnvironments(
++            [],
++        ),
+         refresh: None(
+             Timestamp(
+                 SystemTime {
+@@ -4679,6 +4736,9 @@ fn resolve_config_file() -> anyhow::Result<()> {
+         environments: SupportedEnvironments(
+             [],
+         ),
++        required_environments: SupportedEnvironments(
++            [],
++        ),
+         refresh: None(
+             Timestamp(
+                 SystemTime {
+@@ -4990,6 +5050,9 @@ fn resolve_skip_empty() -> anyhow::Result<()> {
+         environments: SupportedEnvironments(
+             [],
+         ),
++        required_environments: SupportedEnvironments(
++            [],
++        ),
+         refresh: None(
+             Timestamp(
+                 SystemTime {
+@@ -5175,6 +5238,9 @@ fn resolve_skip_empty() -> anyhow::Result<()> {
+         environments: SupportedEnvironments(
+             [],
+         ),
++        required_environments: SupportedEnvironments(
++            [],
++        ),
+         refresh: None(
+             Timestamp(
+                 SystemTime {
+@@ -5379,6 +5445,9 @@ fn allow_insecure_host() -> anyhow::Result<()> {
+         environments: SupportedEnvironments(
+             [],
+         ),
++        required_environments: SupportedEnvironments(
++            [],
++        ),
+         refresh: None(
+             Timestamp(
+                 SystemTime {
+@@ -5575,6 +5644,9 @@ fn index_priority() -> anyhow::Result<()> {
+         environments: SupportedEnvironments(
+             [],
+         ),
++        required_environments: SupportedEnvironments(
++            [],
++        ),
+         refresh: None(
+             Timestamp(
+                 SystemTime {
+@@ -5825,6 +5897,9 @@ fn index_priority() -> anyhow::Result<()> {
+         environments: SupportedEnvironments(
+             [],
+         ),
++        required_environments: SupportedEnvironments(
++            [],
++        ),
+         refresh: None(
+             Timestamp(
+                 SystemTime {
+@@ -6081,6 +6156,9 @@ fn index_priority() -> anyhow::Result<()> {
+         environments: SupportedEnvironments(
+             [],
+         ),
++        required_environments: SupportedEnvironments(
++            [],
++        ),
+         refresh: None(
+             Timestamp(
+                 SystemTime {
+@@ -6332,6 +6410,9 @@ fn index_priority() -> anyhow::Result<()> {
+         environments: SupportedEnvironments(
+             [],
+         ),
++        required_environments: SupportedEnvironments(
++            [],
++        ),
+         refresh: None(
+             Timestamp(
+                 SystemTime {
+@@ -6590,6 +6671,9 @@ fn index_priority() -> anyhow::Result<()> {
+         environments: SupportedEnvironments(
+             [],
+         ),
++        required_environments: SupportedEnvironments(
++            [],
++        ),
+         refresh: None(
+             Timestamp(
+                 SystemTime {
+@@ -6841,6 +6925,9 @@ fn index_priority() -> anyhow::Result<()> {
+         environments: SupportedEnvironments(
+             [],
+         ),
++        required_environments: SupportedEnvironments(
++            [],
++        ),
+         refresh: None(
+             Timestamp(
+                 SystemTime {
+@@ -9508,6 +9595,9 @@ fn upgrade_pip_cli_config_interaction() -> anyhow::Result<()> {
+         environments: SupportedEnvironments(
+             [],
+         ),
++        required_environments: SupportedEnvironments(
++            [],
++        ),
+         refresh: None(
+             Timestamp(
+                 SystemTime {
+@@ -9698,6 +9788,9 @@ fn upgrade_pip_cli_config_interaction() -> anyhow::Result<()> {
+         environments: SupportedEnvironments(
+             [],
+         ),
++        required_environments: SupportedEnvironments(
++            [],
++        ),
+         refresh: None(
+             Timestamp(
+                 SystemTime {
+@@ -9881,6 +9974,9 @@ fn upgrade_pip_cli_config_interaction() -> anyhow::Result<()> {
+         environments: SupportedEnvironments(
+             [],
+         ),
++        required_environments: SupportedEnvironments(
++            [],
++        ),
+         refresh: None(
+             Timestamp(
+                 SystemTime {
+@@ -10062,6 +10158,9 @@ fn upgrade_pip_cli_config_interaction() -> anyhow::Result<()> {
+         environments: SupportedEnvironments(
+             [],
+         ),
++        required_environments: SupportedEnvironments(
++            [],
++        ),
+         refresh: None(
+             Timestamp(
+                 SystemTime {
+@@ -10244,6 +10343,9 @@ fn upgrade_pip_cli_config_interaction() -> anyhow::Result<()> {
+         environments: SupportedEnvironments(
+             [],
+         ),
++        required_environments: SupportedEnvironments(
++            [],
++        ),
+         refresh: None(
+             Timestamp(
+                 SystemTime {
+@@ -10427,6 +10529,9 @@ fn upgrade_pip_cli_config_interaction() -> anyhow::Result<()> {
+         environments: SupportedEnvironments(
+             [],
+         ),
++        required_environments: SupportedEnvironments(
++            [],
++        ),
+         refresh: None(
+             Timestamp(
+                 SystemTime {
+@@ -11407,6 +11512,9 @@ fn build_isolation_override() -> anyhow::Result<()> {
+         environments: SupportedEnvironments(
+             [],
+         ),
++        required_environments: SupportedEnvironments(
++            [],
++        ),
+         refresh: None(
+             Timestamp(
+                 SystemTime {
+@@ -11585,6 +11693,9 @@ fn build_isolation_override() -> anyhow::Result<()> {
+         environments: SupportedEnvironments(
+             [],
+         ),
++        required_environments: SupportedEnvironments(
++            [],
++        ),
+         refresh: None(
+             Timestamp(
+                 SystemTime {
