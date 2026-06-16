@@ -22,7 +22,7 @@ All reports will be reviewed and handled confidentially. Maintainers are obligat
 
 ## Scope
 
-This Code applies in all project spaces — issues, pull requests, Discussions, Discord, and any official communication channel — and when an individual is representing the project in public spaces.
+This Code applies in all project spaces — issues, pull requests, Discussions, and any official communication channel — and when an individual is representing the project in public spaces.
 
 ## Attribution
 

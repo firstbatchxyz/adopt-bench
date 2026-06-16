@@ -34,12 +34,3 @@ def test_launch_posts_drafted():
     text = p.read_text()
     assert GUID in text
     assert "adopt-bench" in text
-
-
-def test_discord_spec_exists():
-    p = REPO / "docs" / "community" / "discord.md"
-    assert p.exists()
-    text = p.read_text()
-    assert GUID in text
-    for ch in ["announcements", "help", "contributing", "leaderboard"]:
-        assert ch in text

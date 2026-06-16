@@ -176,7 +176,6 @@ Built and maintained by [firstbatchxyz](https://firstbatch.xyz). Running longitu
 
 ## Community
 
-- [Discord](https://discord.gg/PLACEHOLDER): `#help`, `#contributing`, `#leaderboard`, `#announcements`
 - [Discussions](https://github.com/firstbatchxyz/adopt-bench/discussions): methodology Q&A, searchable
 - [Contributing](CONTRIBUTING.md)
 - [Leaderboard](docs/leaderboard.md)

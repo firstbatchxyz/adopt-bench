@@ -101,7 +101,6 @@ without repo-specific tuning is part of how we keep the leaderboard honest.
 
 ## Questions
 
-- Real-time chat: `#help` on our Discord (link TBD — see README footer).
 - Methodology Q&A (metrics, oracle window, GAIN, organicity scoring):
   [GitHub Discussions](https://github.com/firstbatchxyz/adopt-bench/discussions)
   > Methodology category. Open an issue only if you've identified a concrete
